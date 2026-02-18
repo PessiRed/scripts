@@ -44,90 +44,72 @@
         panel.style.cssText = `
             position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
             width: 90%; max-width: 600px; padding: 12px; z-index: 2147483647;
-            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-            border: 2px solid #2563eb; border-radius: 16px;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2); display: flex; flex-direction: column; gap: 10px;
-            font-family: -apple-system, BlinkMacSystemFont; transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.98); border: 2px solid #2563eb; border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2); display: none; flex-direction: column; gap: 10px;
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
         `;
-
-        const statusArea = document.createElement('div');
-        statusArea.id = 'or-status';
-        statusArea.style.cssText = 'font-size: 12px; color: #666; text-align: center; height: 20px;';
-        statusArea.innerText = 'OpenReader Ready';
-        panel.appendChild(statusArea);
 
         const tagsContainer = document.createElement('div');
         tagsContainer.id = 'or-tags';
-        tagsContainer.style.cssText = 'display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;';
+        tagsContainer.style.cssText = 'display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: center;';
         panel.appendChild(tagsContainer);
-
-        const controls = document.createElement('div');
-        controls.style.cssText = 'display: flex; justify-content: center; padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.05);';
-        const addTagBtn = createSimpleButton('+', () => {
-            const name = prompt('New tag:');
-            if (name) { addTag(name); renderTags(); }
-        });
-        controls.appendChild(addTagBtn);
-        panel.appendChild(controls);
 
         document.body.appendChild(panel);
         loadTags();
         renderTags();
 
-        document.addEventListener('selectionchange', () => {
+        const syncSelection = () => {
             const s = window.getSelection();
             if (s && !s.isCollapsed) {
                 lastSelectedText = s.toString();
-                updateStatus(true);
+                panel.style.display = 'flex';
+            } else {
+                // Keep panel if it was just shown until user clicks outside or syncs
+            }
+        };
+
+        document.addEventListener('selectionchange', syncSelection);
+        document.addEventListener('touchend', () => setTimeout(syncSelection, 100), true);
+
+        // Close on click outside
+        document.addEventListener('mousedown', (e) => {
+            if (!panel.contains(e.target)) {
+                panel.style.display = 'none';
+                lastSelectedText = "";
             }
         });
-
-        // iOS Specific: Capture on touchend
-        document.addEventListener('touchend', () => {
-            setTimeout(() => {
-                const s = window.getSelection();
-                if (s && !s.isCollapsed) {
-                    lastSelectedText = s.toString();
-                    updateStatus(true);
-                }
-            }, 50);
-        }, true);
     }
 
     function createSimpleButton(text, onClick) {
         const btn = document.createElement('button');
         btn.innerText = text;
-        btn.style.cssText = 'padding: 6px 15px; border-radius: 20px; border: none; background: #f3f4f6; color: #374151; cursor: pointer;';
+        btn.type = 'button';
+        btn.style.cssText = 'padding: 6px 12px; border-radius: 20px; border: 1px solid #d1d5db; background: #fff; color: #2563eb; font-weight: bold; cursor: pointer; font-size: 13px;';
         btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            onClick();
+            e.preventDefault(); e.stopPropagation(); onClick();
         });
         return btn;
     }
 
     function createTagButton(tag) {
         const container = document.createElement('div');
-        container.style.cssText = `background: ${tag.id === 'null' ? '#f9fafb' : '#eff6ff'}; border-radius: 20px; display: inline-flex; align-items: center; overflow: hidden;`;
+        container.style.cssText = 'background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 20px; display: inline-flex; align-items: center; overflow: hidden;';
 
         const btn = document.createElement('button');
         btn.innerText = tag.name;
-        btn.style.cssText = `padding: 6px 12px; border: none; background: transparent; color: ${tag.id === 'null' ? '#4b5563' : '#2563eb'}; font-size: 13px; font-weight: 500; cursor: pointer;`;
+        btn.type = 'button';
+        btn.style.cssText = 'padding: 6px 12px; border: none; background: transparent; color: #2563eb; font-size: 13px; font-weight: bold; cursor: pointer;';
         btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            handleTagClick(tag);
+            e.preventDefault(); e.stopPropagation(); handleTagClick(tag);
         });
         container.appendChild(btn);
 
         if (tag.id !== 'null') {
             const delBtn = document.createElement('button');
             delBtn.innerHTML = '&times;';
-            delBtn.style.cssText = 'padding: 6px 8px; border: none; background: transparent; color: #9ca3af; cursor: pointer;';
+            delBtn.style.cssText = 'padding: 6px 8px; border: none; background: transparent; color: #9ca3af; cursor: pointer; font-size: 16px;';
             delBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                if (confirm('Delete locally?')) { removeTag(tag.id); renderTags(); }
+                e.stopPropagation(); if (confirm('Del?')) { removeTag(tag.id); renderTags(); }
             });
             container.appendChild(delBtn);
         }
@@ -153,38 +135,26 @@
         const c = document.getElementById('or-tags');
         if (!c) return;
         c.innerHTML = '';
+
+        // Add button at the beginning
+        const addBtn = createSimpleButton('+', () => {
+            const name = prompt('New tag:');
+            if (name) { addTag(name); renderTags(); }
+        });
+        c.appendChild(addBtn);
+
         c.appendChild(createTagButton({ id: 'null', name: 'Default' }));
         currentTags.forEach(tag => c.appendChild(createTagButton(tag)));
     }
 
-    function updateStatus(hasSelection = false) {
-        const s = window.getSelection();
-        const el = document.getElementById('or-status');
-        if (!el) return;
-        if (hasSelection || (s && !s.isCollapsed)) {
-            el.innerText = 'Captured! Ready to sync';
-            el.style.color = '#10b981';
-        } else {
-            el.innerText = 'OpenReader Ready';
-            el.style.color = '#666';
-        }
-    }
-
     async function handleTagClick(tag) {
         let exact = lastSelectedText || window.getSelection().toString();
-
-        if (!exact) {
-            exact = prompt('No selection found. Type manually:', '');
-            if (exact === null) return;
-        }
+        if (!exact) return;
 
         const bookInfo = parseTitle();
-        if (!bookInfo) {
-            alert('Debug Error: Failed to parse title from ' + document.title);
-            return;
-        }
+        if (!bookInfo) return;
 
-        // Context extraction
+        // Context extraction (helps OpenReader positioning)
         let prefix = "";
         let suffix = "";
         try {
@@ -207,13 +177,12 @@
             created_at: Date.now()
         };
 
-        alert('Step 2: Payload ready, sending to ' + API_URL); // Step 2: Payload Check
-
         try {
             await uploadData({ annotations: [annotation] });
-            alert('SYNC SUCCESS ✅');
+            // Cleanup on success
+            const panel = document.getElementById('openreader-panel');
+            if (panel) panel.style.display = 'none';
             lastSelectedText = "";
-            updateStatus(false);
             if (window.getSelection) window.getSelection().removeAllRanges();
         } catch (e) {
             alert('SYNC FAILED: ' + e.message);
@@ -223,8 +192,6 @@
     function uploadData(data) {
         return new Promise((resolve, reject) => {
             const payload = JSON.stringify(data);
-
-            // Try GM_xmlhttpRequest if available (bypasses some CORS restrictions)
             if (typeof GM_xmlhttpRequest !== 'undefined') {
                 try {
                     GM_xmlhttpRequest({
@@ -232,38 +199,16 @@
                         url: API_URL,
                         headers: { 'Content-Type': 'application/json' },
                         data: payload,
-                        onload: (res) => {
-                            if (res.status >= 200 && res.status < 300) resolve();
-                            else reject(new Error('Server Status ' + res.status + ': ' + res.responseText));
-                        },
-                        onerror: (err) => reject(new Error('XHR Error: ' + JSON.stringify(err))),
-                        ontimeout: () => reject(new Error('XHR Timeout'))
+                        onload: (res) => res.status >= 200 && res.status < 300 ? resolve() : reject(new Error('HTTP ' + res.status)),
+                        onerror: () => reject(new Error('Network Error'))
                     });
                     return;
-                } catch (e) { console.warn('GM_xmlhttpRequest failed, falling back to fetch', e); }
+                } catch (e) { }
             }
-
-            // Fallback to standard fetch
-            fetch(API_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                mode: 'cors',
-                body: payload
-            })
-                .then(res => {
-                    if (res.ok) resolve();
-                    else res.text().then(txt => reject(new Error('Fetch Status ' + res.status + ': ' + txt)));
-                })
-                .catch(err => reject(new Error('Fetch Error: ' + err.message)));
+            fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload })
+                .then(res => res.ok ? resolve() : reject(new Error('Fetch ' + res.status)))
+                .catch(err => reject(err));
         });
-    }
-
-    function showToast(msg, type) {
-        const el = document.getElementById('or-status');
-        if (!el) return;
-        el.innerText = msg;
-        el.style.color = type === 'error' ? '#ef4444' : (type === 'success' ? '#10b981' : '#2563eb');
-        setTimeout(() => { el.innerText = 'OpenReader Ready'; el.style.color = '#666'; }, 2000);
     }
 
     if (document.body) createUI();
