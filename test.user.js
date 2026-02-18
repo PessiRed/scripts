@@ -13,6 +13,8 @@
 (function () {
     'use strict';
 
+    alert('!!! OPENREADER SCRIPT START !!!');
+
     // --- Configuration ---
     const API_URL = 'https://openreader-api.pessired.workers.dev/api/web/sync';
     const TAGS_STORAGE_KEY = 'openreader_tags';
@@ -42,10 +44,10 @@
         panel.id = 'openreader-panel';
         panel.style.cssText = `
             position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-            width: 90%; max-width: 600px; padding: 12px; z-index: 9999;
-            background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 16px;
-            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; gap: 10px;
+            width: 90%; max-width: 600px; padding: 12px; z-index: 2147483647;
+            background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 2px solid #2563eb; border-radius: 16px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2); display: flex; flex-direction: column; gap: 10px;
             font-family: -apple-system, BlinkMacSystemFont; transition: all 0.3s ease;
         `;
 
@@ -79,7 +81,11 @@
         const btn = document.createElement('button');
         btn.innerText = text;
         btn.style.cssText = 'padding: 6px 15px; border-radius: 20px; border: none; background: #f3f4f6; color: #374151; cursor: pointer;';
-        btn.onclick = onClick;
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onClick();
+        });
         return btn;
     }
 
@@ -90,17 +96,22 @@
         const btn = document.createElement('button');
         btn.innerText = tag.name;
         btn.style.cssText = `padding: 6px 12px; border: none; background: transparent; color: ${tag.id === 'null' ? '#4b5563' : '#2563eb'}; font-size: 13px; font-weight: 500; cursor: pointer;`;
-        btn.onclick = () => handleTagClick(tag);
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            handleTagClick(tag);
+        });
         container.appendChild(btn);
 
         if (tag.id !== 'null') {
             const delBtn = document.createElement('button');
             delBtn.innerHTML = '&times;';
             delBtn.style.cssText = 'padding: 6px 8px; border: none; background: transparent; color: #9ca3af; cursor: pointer;';
-            delBtn.onclick = (e) => {
+            delBtn.addEventListener('click', (e) => {
+                e.preventDefault();
                 e.stopPropagation();
                 if (confirm('Delete locally?')) { removeTag(tag.id); renderTags(); }
-            };
+            });
             container.appendChild(delBtn);
         }
         return container;
