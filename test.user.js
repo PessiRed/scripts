@@ -13,8 +13,6 @@
 (function () {
     'use strict';
 
-    alert('!!! OPENREADER SCRIPT START !!!');
-
     // --- Configuration ---
     const API_URL = 'https://openreader-api.pessired.workers.dev/api/web/sync';
     const TAGS_STORAGE_KEY = 'openreader_tags';
@@ -83,6 +81,17 @@
                 updateStatus(true);
             }
         });
+
+        // iOS Specific: Capture on touchend
+        document.addEventListener('touchend', () => {
+            setTimeout(() => {
+                const s = window.getSelection();
+                if (s && !s.isCollapsed) {
+                    lastSelectedText = s.toString();
+                    updateStatus(true);
+                }
+            }, 50);
+        }, true);
     }
 
     function createSimpleButton(text, onClick) {
