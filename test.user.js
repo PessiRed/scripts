@@ -143,22 +143,34 @@
     }
 
     async function handleTagClick(tag) {
-        const s = window.getSelection();
-        if (!s || s.isCollapsed) { showToast('Select text first', 'error'); return; }
+        alert('Action triggered for tag: ' + tag.name); // Step 1: Entry Check
 
-        const exact = s.toString();
+        const s = window.getSelection();
+        let exact = (s && !s.isCollapsed) ? s.toString() : "";
+
+        if (!exact) {
+            exact = prompt('No text selected. Enter quote manually (optional):', '');
+            if (exact === null) return; // Cancelled
+        }
+
         const bookInfo = parseTitle();
         if (!bookInfo) {
-            alert('Debug: Failed to parse title from ' + document.title);
+            alert('Debug Error: Failed to parse title from ' + document.title);
             return;
         }
 
         // Context extraction
-        const contentDiv = document.querySelector('.txtnav') || document.body;
-        const allText = contentDiv.innerText;
-        const totalIndex = allText.indexOf(exact);
-        const prefix = totalIndex > 30 ? allText.substring(totalIndex - 30, totalIndex) : allText.substring(0, totalIndex);
-        const suffix = allText.substring(totalIndex + exact.length, totalIndex + exact.length + 30);
+        let prefix = "";
+        let suffix = "";
+        try {
+            const contentDiv = document.querySelector('.txtnav') || document.body;
+            const allText = contentDiv.innerText;
+            const totalIndex = allText.indexOf(exact);
+            if (totalIndex !== -1) {
+                prefix = totalIndex > 30 ? allText.substring(totalIndex - 30, totalIndex) : allText.substring(0, totalIndex);
+                suffix = allText.substring(totalIndex + exact.length, totalIndex + exact.length + 30);
+            }
+        } catch (e) { console.warn('Context extraction failed', e); }
 
         const annotation = {
             id: uuidv4(),
@@ -170,50 +182,56 @@
             created_at: Date.now()
         };
 
+        alert('Step 2: Payload ready, sending to ' + API_URL); // Step 2: Payload Check
+
         showToast('Saving...', 'info');
         try {
             await uploadData({ annotations: [annotation] });
+            alert('Step 3: Upload Success!'); // Step 3: Success Check
             showToast('Saved!', 'success');
-            window.getSelection().removeAllRanges();
+            if (window.getSelection) window.getSelection().removeAllRanges();
         } catch (e) {
             console.error(e);
-            alert('Upload Failed Error: ' + e.message);
+            alert('Step 3 Error: ' + e.message);
             showToast('Failed', 'error');
         }
     }
 
     function uploadData(data) {
         return new Promise((resolve, reject) => {
-            try {
-                GM_xmlhttpRequest({
-                    method: 'POST',
-                    url: API_URL,
-                    headers: { 'Content-Type': 'application/json' },
-                    data: JSON.stringify(data),
-                    onload: (res) => {
-                        if (res.status >= 200 && res.status < 300) {
-                            resolve();
-                        } else {
-                            const errorMsg = `Status: ${res.status}\nResponse: ${res.responseText}`;
-                            console.error('Upload failed:', errorMsg);
-                            alert('Network Error Response:\n' + errorMsg);
-                            reject(new Error('Server Error: ' + res.status));
-                        }
-                    },
-                    onerror: (err) => {
-                        console.error('GM_xmlhttpRequest error:', err);
-                        alert('XHR Execution Error! Check extension permissions.\nDetails: ' + JSON.stringify(err));
-                        reject(err);
-                    },
-                    ontimeout: () => {
-                        alert('Request Timed Out!');
-                        reject(new Error('Timeout'));
-                    }
-                });
-            } catch (fatal) {
-                alert('Fatal XHR Call Error: ' + fatal.message);
-                reject(fatal);
+            const payload = JSON.stringify(data);
+
+            // Try GM_xmlhttpRequest if available (bypasses some CORS restrictions)
+            if (typeof GM_xmlhttpRequest !== 'undefined') {
+                try {
+                    GM_xmlhttpRequest({
+                        method: 'POST',
+                        url: API_URL,
+                        headers: { 'Content-Type': 'application/json' },
+                        data: payload,
+                        onload: (res) => {
+                            if (res.status >= 200 && res.status < 300) resolve();
+                            else reject(new Error('Server Status ' + res.status + ': ' + res.responseText));
+                        },
+                        onerror: (err) => reject(new Error('XHR Error: ' + JSON.stringify(err))),
+                        ontimeout: () => reject(new Error('XHR Timeout'))
+                    });
+                    return;
+                } catch (e) { console.warn('GM_xmlhttpRequest failed, falling back to fetch', e); }
             }
+
+            // Fallback to standard fetch
+            fetch(API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                mode: 'cors',
+                body: payload
+            })
+                .then(res => {
+                    if (res.ok) resolve();
+                    else res.text().then(txt => reject(new Error('Fetch Status ' + res.status + ': ' + txt)));
+                })
+                .catch(err => reject(new Error('Fetch Error: ' + err.message)));
         });
     }
 
