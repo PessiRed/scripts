@@ -2,7 +2,7 @@
 // ==UserScript==
 // @name         OpenReader - 69shuba Sync
 // @namespace    http://tampermonkey.net/
-// @version      0.2
+// @version      0.10
 // @description  Sync highlights to specialized web_annotations table
 // @author       OpenReader
 // @match        https://www.69shuba.com/*
@@ -63,21 +63,11 @@
             if (s && !s.isCollapsed) {
                 lastSelectedText = s.toString();
                 panel.style.display = 'flex';
-            } else {
-                // Keep panel if it was just shown until user clicks outside or syncs
             }
         };
 
         document.addEventListener('selectionchange', syncSelection);
         document.addEventListener('touchend', () => setTimeout(syncSelection, 100), true);
-
-        // Close on click outside
-        document.addEventListener('mousedown', (e) => {
-            if (!panel.contains(e.target)) {
-                panel.style.display = 'none';
-                lastSelectedText = "";
-            }
-        });
     }
 
     function createSimpleButton(text, onClick) {
@@ -109,7 +99,8 @@
             delBtn.innerHTML = '&times;';
             delBtn.style.cssText = 'padding: 6px 8px; border: none; background: transparent; color: #9ca3af; cursor: pointer; font-size: 16px;';
             delBtn.addEventListener('click', (e) => {
-                e.stopPropagation(); if (confirm('Del?')) { removeTag(tag.id); renderTags(); }
+                e.preventDefault(); e.stopPropagation();
+                if (confirm('Del local?')) { removeTag(tag.id); renderTags(); }
             });
             container.appendChild(delBtn);
         }
@@ -136,36 +127,48 @@
         if (!c) return;
         c.innerHTML = '';
 
-        // Add button at the beginning
+        // 1. Manual Close Button (Red)
+        const closeBtn = createSimpleButton('×', () => {
+            const panel = document.getElementById('openreader-panel');
+            if (panel) panel.style.display = 'none';
+            lastSelectedText = "";
+            if (window.getSelection) window.getSelection().removeAllRanges();
+        });
+        closeBtn.style.color = '#ef4444';
+        closeBtn.style.borderColor = '#fee2e2';
+        closeBtn.style.padding = '6px 10px';
+        c.appendChild(closeBtn);
+
+        // 2. Add button
         const addBtn = createSimpleButton('+', () => {
             const name = prompt('New tag:');
             if (name) { addTag(name); renderTags(); }
         });
         c.appendChild(addBtn);
 
+        // 3. Tags
         c.appendChild(createTagButton({ id: 'null', name: 'Default' }));
         currentTags.forEach(tag => c.appendChild(createTagButton(tag)));
     }
 
     async function handleTagClick(tag) {
-        let exact = lastSelectedText || window.getSelection().toString();
+        const exact = lastSelectedText || window.getSelection().toString();
         if (!exact) return;
 
         const bookInfo = parseTitle();
         if (!bookInfo) return;
 
-        // Context extraction (helps OpenReader positioning)
         let prefix = "";
         let suffix = "";
         try {
             const contentDiv = document.querySelector('.txtnav') || document.body;
             const allText = contentDiv.innerText;
-            const totalIndex = allText.indexOf(exact);
-            if (totalIndex !== -1) {
-                prefix = totalIndex > 30 ? allText.substring(totalIndex - 30, totalIndex) : allText.substring(0, totalIndex);
-                suffix = allText.substring(totalIndex + exact.length, totalIndex + exact.length + 30);
+            const idx = allText.indexOf(exact);
+            if (idx !== -1) {
+                prefix = idx > 30 ? allText.substring(idx - 30, idx) : allText.substring(0, idx);
+                suffix = allText.substring(idx + exact.length, idx + exact.length + 30);
             }
-        } catch (e) { console.warn('Context extraction failed', e); }
+        } catch (e) { }
 
         const annotation = {
             id: uuidv4(),
@@ -179,7 +182,6 @@
 
         try {
             await uploadData({ annotations: [annotation] });
-            // Cleanup on success
             const panel = document.getElementById('openreader-panel');
             if (panel) panel.style.display = 'none';
             lastSelectedText = "";
