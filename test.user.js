@@ -1,163 +1,203 @@
 
 // ==UserScript==
-// @name         iOS Selection Popup
+// @name         OpenReader - 69shuba Sync
 // @namespace    http://tampermonkey.net/
-// @version      1.0
-// @description  在选中文字后显示自定义悬浮菜单 (iOS Safari 优化版)
-// @author       Gemini
-// @match        *://*/*
-// @grant        none
+// @version      0.2
+// @description  Sync highlights to specialized web_annotations table
+// @author       OpenReader
+// @match        https://www.69shuba.com/*
+// @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
 (function () {
     'use strict';
 
-    // --- 1. 样式注入 ---
-    const style = document.createElement('style');
-    style.textContent = `
-        #ios-custom-popup {
-            position: absolute;
-            z-index: 2147483647;
-            display: none;
-            background: rgba(28, 28, 30, 0.9);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border: 0.5px solid rgba(255, 255, 255, 0.15);
-            border-radius: 12px;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-            padding: 6px;
-            flex-direction: row;
-            align-items: center;
-            gap: 8px;
-            transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-            opacity: 0;
-            user-select: none;
-            -webkit-user-select: none;
-        }
+    // --- Configuration ---
+    const API_URL = 'https://openreader-api.pessired.workers.dev/api/web/sync';
+    const TAGS_STORAGE_KEY = 'openreader_tags';
 
-        .popup-item {
-            color: white;
-            font-size: 14px;
-            font-family: -apple-system, system-ui, sans-serif;
-            padding: 6px 12px;
-            border-radius: 6px;
-            white-space: nowrap;
-        }
+    // --- State ---
+    let currentTags = [];
 
-        .popup-item:active {
-            background: rgba(255, 255, 255, 0.1);
-        }
-
-        .popup-divider {
-            width: 0.5px;
-            height: 16px;
-            background: rgba(255, 255, 255, 0.2);
-        }
-    `;
-    document.head.appendChild(style);
-
-    // --- 2. 创建弹窗元素 ---
-    const popup = document.createElement('div');
-    popup.id = 'ios-custom-popup';
-    popup.innerHTML = `
-        <div class="popup-item" id="popup-copy">拷贝</div>
-        <div class="popup-divider"></div>
-        <div class="popup-item" id="popup-search">查询</div>
-        <div class="popup-divider"></div>
-        <div class="popup-item" id="popup-custom">测试</div>
-    `;
-    document.body.appendChild(popup);
-
-    let lastSelectedText = "";
-
-    // --- 3. 核心逻辑：获取位置并显示 ---
-    const updatePopupPosition = () => {
-        const selection = window.getSelection();
-        const selectedText = selection.toString().trim();
-
-        if (selectedText.length > 0) {
-            lastSelectedText = selectedText;
-            const range = selection.getRangeAt(0);
-            const rects = range.getClientRects();
-
-            // 获取选中区域的最上方矩形
-            const rect = rects[0];
-
-            popup.style.display = 'flex';
-
-            // 延迟计算宽度以确保渲染
-            const popupWidth = popup.offsetWidth;
-            const popupHeight = popup.offsetHeight;
-
-            // 计算位置：在选中文字上方
-            let top = rect.top + window.scrollY - popupHeight - 12;
-            let left = rect.left + window.scrollX + (rect.width / 2) - (popupWidth / 2);
-
-            // 边界检查：防止超出屏幕
-            if (left < 10) left = 10;
-            if (left + popupWidth > window.innerWidth - 10) {
-                left = window.innerWidth - popupWidth - 10;
-            }
-            if (top < window.scrollY + 10) {
-                // 如果上方没空间，显示在文字下方
-                top = rect.bottom + window.scrollY + 12;
-            }
-
-            popup.style.top = `${top}px`;
-            popup.style.left = `${left}px`;
-
-            // 触发动画
-            requestAnimationFrame(() => {
-                popup.style.opacity = '1';
-            });
-        } else {
-            hidePopup();
-        }
-    };
-
-    const hidePopup = () => {
-        popup.style.opacity = '0';
-        setTimeout(() => {
-            if (popup.style.opacity === '0') {
-                popup.style.display = 'none';
-            }
-        }, 200);
-    };
-
-    // --- 4. 事件监听 ---
-
-    // iOS 必须监听 touchend，因为选择状态在 touch 结束时才稳定
-    document.addEventListener('touchend', () => {
-        // 稍微延迟，等待系统菜单和选择范围更新
-        setTimeout(updatePopupPosition, 100);
-    }, false);
-
-    // 点击页面其他位置隐藏
-    document.addEventListener('touchstart', (e) => {
-        if (!popup.contains(e.target)) {
-            hidePopup();
-        }
-    }, false);
-
-    // 按钮功能实现
-    document.getElementById('popup-copy').addEventListener('click', (e) => {
-        e.preventDefault();
-        navigator.clipboard.writeText(lastSelectedText).then(() => {
-            alert('已拷贝: ' + lastSelectedText.substring(0, 20) + '...');
-            hidePopup();
+    function uuidv4() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+            var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
         });
-    });
+    }
 
-    document.getElementById('popup-search').addEventListener('click', (e) => {
-        e.preventDefault();
-        window.open(`https://www.google.com/search?q=${encodeURIComponent(lastSelectedText)}`, '_blank');
-        hidePopup();
-    });
+    function parseTitle() {
+        const titleParts = document.title.split('-');
+        if (titleParts.length < 2) return null;
+        const bookName = titleParts[0].trim();
+        const fullChapterTitle = titleParts[1].trim();
+        const match = fullChapterTitle.match(/第(\d+)章/);
+        const chapterIndex = match ? parseInt(match[1], 10) : 0;
+        return { bookName, chapterTitle: fullChapterTitle, chapterIndex };
+    }
 
-    document.getElementById('popup-custom').addEventListener('click', (e) => {
-        e.preventDefault();
-        alert('脚本测试成功！选中长度：' + lastSelectedText.length);
-        hidePopup();
-    });
+    function createUI() {
+        const panel = document.createElement('div');
+        panel.id = 'openreader-panel';
+        panel.style.cssText = `
+            position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+            width: 90%; max-width: 600px; padding: 12px; z-index: 9999;
+            background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 16px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1); display: flex; flex-direction: column; gap: 10px;
+            font-family: -apple-system, BlinkMacSystemFont; transition: all 0.3s ease;
+        `;
+
+        const statusArea = document.createElement('div');
+        statusArea.id = 'or-status';
+        statusArea.style.cssText = 'font-size: 12px; color: #666; text-align: center; height: 20px;';
+        statusArea.innerText = 'OpenReader Ready';
+        panel.appendChild(statusArea);
+
+        const tagsContainer = document.createElement('div');
+        tagsContainer.id = 'or-tags';
+        tagsContainer.style.cssText = 'display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;';
+        panel.appendChild(tagsContainer);
+
+        const controls = document.createElement('div');
+        controls.style.cssText = 'display: flex; justify-content: center; padding-top: 8px; border-top: 1px solid rgba(0,0,0,0.05);';
+        const addTagBtn = createSimpleButton('+', () => {
+            const name = prompt('New tag:');
+            if (name) { addTag(name); renderTags(); }
+        });
+        controls.appendChild(addTagBtn);
+        panel.appendChild(controls);
+
+        document.body.appendChild(panel);
+        loadTags();
+        renderTags();
+        document.addEventListener('selectionchange', updateStatus);
+    }
+
+    function createSimpleButton(text, onClick) {
+        const btn = document.createElement('button');
+        btn.innerText = text;
+        btn.style.cssText = 'padding: 6px 15px; border-radius: 20px; border: none; background: #f3f4f6; color: #374151; cursor: pointer;';
+        btn.onclick = onClick;
+        return btn;
+    }
+
+    function createTagButton(tag) {
+        const container = document.createElement('div');
+        container.style.cssText = `background: ${tag.id === 'null' ? '#f9fafb' : '#eff6ff'}; border-radius: 20px; display: inline-flex; align-items: center; overflow: hidden;`;
+
+        const btn = document.createElement('button');
+        btn.innerText = tag.name;
+        btn.style.cssText = `padding: 6px 12px; border: none; background: transparent; color: ${tag.id === 'null' ? '#4b5563' : '#2563eb'}; font-size: 13px; font-weight: 500; cursor: pointer;`;
+        btn.onclick = () => handleTagClick(tag);
+        container.appendChild(btn);
+
+        if (tag.id !== 'null') {
+            const delBtn = document.createElement('button');
+            delBtn.innerHTML = '&times;';
+            delBtn.style.cssText = 'padding: 6px 8px; border: none; background: transparent; color: #9ca3af; cursor: pointer;';
+            delBtn.onclick = (e) => {
+                e.stopPropagation();
+                if (confirm('Delete locally?')) { removeTag(tag.id); renderTags(); }
+            };
+            container.appendChild(delBtn);
+        }
+        return container;
+    }
+
+    function loadTags() {
+        const stored = localStorage.getItem(TAGS_STORAGE_KEY);
+        currentTags = stored ? JSON.parse(stored) : [];
+    }
+
+    function addTag(name) {
+        currentTags.push({ id: uuidv4(), name: name });
+        localStorage.setItem(TAGS_STORAGE_KEY, JSON.stringify(currentTags));
+    }
+
+    function removeTag(id) {
+        currentTags = currentTags.filter(t => t.id !== id);
+        localStorage.setItem(TAGS_STORAGE_KEY, JSON.stringify(currentTags));
+    }
+
+    function renderTags() {
+        const c = document.getElementById('or-tags');
+        if (!c) return;
+        c.innerHTML = '';
+        c.appendChild(createTagButton({ id: 'null', name: 'Default' }));
+        currentTags.forEach(tag => c.appendChild(createTagButton(tag)));
+    }
+
+    function updateStatus() {
+        const s = window.getSelection();
+        const el = document.getElementById('or-status');
+        if (!el) return;
+        if (s && !s.isCollapsed) {
+            el.innerText = 'Click a tag to save selection';
+            el.style.color = '#2563eb';
+        } else {
+            el.innerText = 'OpenReader Ready';
+            el.style.color = '#666';
+        }
+    }
+
+    async function handleTagClick(tag) {
+        const s = window.getSelection();
+        if (!s || s.isCollapsed) { showToast('Select text first', 'error'); return; }
+
+        const exact = s.toString();
+        const bookInfo = parseTitle();
+        if (!bookInfo) return;
+
+        // Context extraction
+        const contentDiv = document.querySelector('.txtnav') || document.body;
+        const allText = contentDiv.innerText;
+        const totalIndex = allText.indexOf(exact);
+        const prefix = totalIndex > 30 ? allText.substring(totalIndex - 30, totalIndex) : allText.substring(0, totalIndex);
+        const suffix = allText.substring(totalIndex + exact.length, totalIndex + exact.length + 30);
+
+        const annotation = {
+            id: uuidv4(),
+            book_title: bookInfo.bookName,
+            chapter_index: bookInfo.chapterIndex,
+            chapter_title: bookInfo.chapterTitle,
+            tag_name: tag.id === 'null' ? null : tag.name,
+            quote: { exact, prefix, suffix },
+            created_at: Date.now()
+        };
+
+        showToast('Saving...', 'info');
+        try {
+            await uploadData({ annotations: [annotation] });
+            showToast('Saved!', 'success');
+            window.getSelection().removeAllRanges();
+        } catch (e) {
+            showToast('Failed', 'error');
+        }
+    }
+
+    function uploadData(data) {
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: API_URL,
+                headers: { 'Content-Type': 'application/json' },
+                data: JSON.stringify(data),
+                onload: (res) => (res.status >= 200 && res.status < 300) ? resolve() : reject(),
+                onerror: reject
+            });
+        });
+    }
+
+    function showToast(msg, type) {
+        const el = document.getElementById('or-status');
+        if (!el) return;
+        el.innerText = msg;
+        el.style.color = type === 'error' ? '#ef4444' : (type === 'success' ? '#10b981' : '#2563eb');
+        setTimeout(() => { el.innerText = 'OpenReader Ready'; el.style.color = '#666'; }, 2000);
+    }
+
+    if (document.body) createUI();
+    else window.addEventListener('DOMContentLoaded', createUI);
 
 })();
