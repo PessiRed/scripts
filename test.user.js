@@ -21,6 +21,7 @@
 
     // --- State ---
     let currentTags = [];
+    let lastSelectedText = "";
 
     function uuidv4() {
         return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
@@ -30,10 +31,10 @@
     }
 
     function parseTitle() {
-        const titleParts = document.title.split('-');
-        if (titleParts.length < 2) return null;
-        const bookName = titleParts[0].trim();
-        const fullChapterTitle = titleParts[1].trim();
+        const parts = document.title.split(/[_\-]/);
+        if (parts.length === 0) return null;
+        const bookName = parts[0].trim();
+        const fullChapterTitle = parts.length > 1 ? parts[1].trim() : "Unknown";
         const match = fullChapterTitle.match(/第(\d+)章/);
         const chapterIndex = match ? parseInt(match[1], 10) : 0;
         return { bookName, chapterTitle: fullChapterTitle, chapterIndex };
@@ -74,7 +75,14 @@
         document.body.appendChild(panel);
         loadTags();
         renderTags();
-        document.addEventListener('selectionchange', updateStatus);
+
+        document.addEventListener('selectionchange', () => {
+            const s = window.getSelection();
+            if (s && !s.isCollapsed) {
+                lastSelectedText = s.toString();
+                updateStatus(true);
+            }
+        });
     }
 
     function createSimpleButton(text, onClick) {
@@ -140,13 +148,13 @@
         currentTags.forEach(tag => c.appendChild(createTagButton(tag)));
     }
 
-    function updateStatus() {
+    function updateStatus(hasSelection = false) {
         const s = window.getSelection();
         const el = document.getElementById('or-status');
         if (!el) return;
-        if (s && !s.isCollapsed) {
-            el.innerText = 'Click a tag to save selection';
-            el.style.color = '#2563eb';
+        if (hasSelection || (s && !s.isCollapsed)) {
+            el.innerText = 'Captured! Ready to sync';
+            el.style.color = '#10b981';
         } else {
             el.innerText = 'OpenReader Ready';
             el.style.color = '#666';
@@ -154,14 +162,11 @@
     }
 
     async function handleTagClick(tag) {
-        alert('Action triggered for tag: ' + tag.name); // Step 1: Entry Check
-
-        const s = window.getSelection();
-        let exact = (s && !s.isCollapsed) ? s.toString() : "";
+        let exact = lastSelectedText || window.getSelection().toString();
 
         if (!exact) {
-            exact = prompt('No text selected. Enter quote manually (optional):', '');
-            if (exact === null) return; // Cancelled
+            exact = prompt('No selection found. Type manually:', '');
+            if (exact === null) return;
         }
 
         const bookInfo = parseTitle();
@@ -195,16 +200,14 @@
 
         alert('Step 2: Payload ready, sending to ' + API_URL); // Step 2: Payload Check
 
-        showToast('Saving...', 'info');
         try {
             await uploadData({ annotations: [annotation] });
-            alert('Step 3: Upload Success!'); // Step 3: Success Check
-            showToast('Saved!', 'success');
+            alert('SYNC SUCCESS ✅');
+            lastSelectedText = "";
+            updateStatus(false);
             if (window.getSelection) window.getSelection().removeAllRanges();
         } catch (e) {
-            console.error(e);
-            alert('Step 3 Error: ' + e.message);
-            showToast('Failed', 'error');
+            alert('SYNC FAILED: ' + e.message);
         }
     }
 
