@@ -6,6 +6,7 @@
 // @description  Sync highlights to specialized web_annotations table
 // @author       OpenReader
 // @match        https://www.69shuba.com/*
+// @connect      openreader-api.pessired.workers.dev
 // @grant        GM_xmlhttpRequest
 // ==/UserScript==
 
@@ -183,8 +184,18 @@
                 url: API_URL,
                 headers: { 'Content-Type': 'application/json' },
                 data: JSON.stringify(data),
-                onload: (res) => (res.status >= 200 && res.status < 300) ? resolve() : reject(),
-                onerror: reject
+                onload: (res) => {
+                    if (res.status >= 200 && res.status < 300) {
+                        resolve();
+                    } else {
+                        console.error('Upload failed status:', res.status, res.responseText);
+                        reject(new Error(res.statusText));
+                    }
+                },
+                onerror: (err) => {
+                    console.error('GM_xmlhttpRequest error:', err);
+                    reject(err);
+                }
             });
         });
     }
